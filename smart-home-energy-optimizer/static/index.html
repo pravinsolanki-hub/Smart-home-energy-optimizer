@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Home Energy Optimizer | Alexa+ & AWS Dashboard</title>
+  <!-- Tailwind CSS & FontAwesome CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              500: '#10b981',
+              600: '#059669',
+              900: '#064e3b'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #0b1120; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; }
+    .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; }
+    .card-accent { background: linear-gradient(135deg, rgba(16,185,129,0.1) 0%, rgba(30,41,59,0.7) 100%); border: 1px solid rgba(16,185,129,0.3); }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+  <!-- Top Navigation -->
+  <header class="flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-800 gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-2xl">
+        <i class="fa-solid fa-bolt"></i>
+      </div>
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+          Smart Home Energy Optimizer
+          <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">Alexa+ & AWS</span>
+        </h1>
+        <p class="text-xs text-slate-400">Autonomous Demand Prediction • Constrained Optimization • Explainable Action Loop</p>
+      </div>
+    </div>
+
+    <!-- Live Status Badges -->
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" id="aws-status-dot"></span>
+        <span class="text-slate-300">AWS IoT Core:</span>
+        <span class="text-emerald-400 font-semibold" id="aws-status-pill">Shadow Simulation</span>
+      </div>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs">
+        <i class="fa-solid fa-microchip text-blue-400"></i>
+        <span class="text-slate-300">ML Model:</span>
+        <span class="text-blue-400 font-semibold" id="ml-improvement-pill">+42.5% MAE vs Baseline</span>
+      </div>
+      <button onclick="refreshDashboard()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-300 transition flex items-center gap-1.5">
+        <i class="fa-solid fa-rotate-right"></i> Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Metric Overview Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 my-6">
+    <!-- Live Demand -->
+    <div class="card p-5">
+      <div class="flex justify-between items-start text-slate-400 text-xs mb-2">
+        <span>CURRENT POWER DRAW</span>
+        <i class="fa-solid fa-chart-line text-emerald-400"></i>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-3xl font-extrabold text-white" id="live-power">--</span>
+        <span class="text-xs text-slate-400">kW</span>
+      </div>
+      <div class="mt-2 text-xs text-slate-400 flex items-center gap-1.5">
+        <span id="indoor-temp" class="text-slate-300">Indoor: --°F</span> • 
+        <span id="outdoor-temp" class="text-slate-300">Outdoor: --°F</span>
+      </div>
+    </div>
+
+    <!-- Active Tariff -->
+    <div class="card p-5">
+      <div class="flex justify-between items-start text-slate-400 text-xs mb-2">
+        <span>ELECTRICITY TARIFF</span>
+        <i class="fa-solid fa-tag text-amber-400"></i>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-3xl font-extrabold text-amber-400" id="live-tariff">--</span>
+        <span class="text-xs text-slate-400">/ kWh</span>
+      </div>
+      <div class="mt-2 text-xs" id="tariff-tier-badge">
+        <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Standard Off-Peak</span>
+      </div>
+    </div>
+
+    <!-- Projected Bill (BAU) -->
+    <div class="card p-5">
+      <div class="flex justify-between items-start text-slate-400 text-xs mb-2">
+        <span>PROJECTED 24H BILL (BAU)</span>
+        <i class="fa-solid fa-receipt text-slate-400"></i>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-3xl font-extrabold text-slate-200" id="bau-bill">--</span>
+        <span class="text-xs text-slate-400">USD</span>
+      </div>
+      <div class="mt-2 text-xs text-slate-400">
+        Persistence Baseline: <span id="persistence-bill" class="text-slate-300">--</span>
+      </div>
+    </div>
+
+    <!-- Projected Savings Card (Hero) -->
+    <div class="card card-accent p-5">
+      <div class="flex justify-between items-start text-emerald-400 text-xs font-semibold mb-2">
+        <span>PROJECTED 24H SAVINGS</span>
+        <i class="fa-solid fa-piggy-bank"></i>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-3xl font-black text-emerald-400" id="savings-amount">--</span>
+        <span class="text-xs text-emerald-300 font-semibold" id="savings-pct">(0%)</span>
+      </div>
+      <div class="mt-2 text-xs text-emerald-200/80">
+        Optimized Bill: <span id="optimized-bill" class="font-bold text-white">--</span> (Zero comfort violations)
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content Grid -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <!-- Left 2 Cols: 24-Hour Forecast Chart & Actions -->
+    <div class="lg:col-span-2 space-y-6">
+
+      <!-- Chart Card -->
+      <div class="card p-6">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-chart-area text-blue-400"></i> 24-Hour Predictive Demand Horizon
+            </h2>
+            <p class="text-xs text-slate-400">Comparing Naive Persistence Baseline, Machine Learning Forecast, and Optimized Load</p>
+          </div>
+          <!-- Legend Badges -->
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="flex items-center gap-1.5 text-slate-400"><span class="w-3 h-0.5 bg-orange-400 inline-block"></span> Baseline</span>
+            <span class="flex items-center gap-1.5 text-slate-400"><span class="w-3 h-0.5 bg-blue-400 inline-block"></span> ML Forecast</span>
+            <span class="flex items-center gap-1.5 text-slate-400"><span class="w-3 h-0.5 bg-emerald-400 inline-block"></span> Optimized</span>
+          </div>
+        </div>
+
+        <div class="h-72 w-full relative">
+          <canvas id="forecastChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Actionable Recommendations Card -->
+      <div class="card p-6">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i> Proposed Optimization Actions
+            </h2>
+            <p class="text-xs text-slate-400" id="explanation-summary">Loading intelligent recommendations...</p>
+          </div>
+          <button id="approve-all-btn" onclick="approveFirstAction()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-emerald-900/40 transition flex items-center gap-2">
+            <i class="fa-solid fa-check-double"></i> Approve Plan
+          </button>
+        </div>
+
+        <div id="actions-container" class="space-y-3">
+          <!-- Dynamic Action Cards populated via JS -->
+          <div class="text-xs text-slate-500 py-4 text-center">Loading actions...</div>
+        </div>
+      </div>
+
+      <!-- Device Fleet & Shadow State -->
+      <div class="card p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-network-wired text-purple-400"></i> Connected Appliance Shadows (AWS IoT Core)
+          </h2>
+          <span class="text-xs text-slate-400">Desired vs. Reported State</span>
+        </div>
+
+        <div id="devices-container" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- Devices dynamically populated -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right 1 Col: Simulated Alexa+ MCP Experience -->
+    <div class="space-y-6">
+
+      <!-- Alexa+ Simulation Panel -->
+      <div class="card p-6 border-blue-500/30">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-700">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-400 flex items-center justify-center text-blue-400 text-sm">
+              <i class="fa-solid fa-microphone"></i>
+            </div>
+            <div>
+              <h3 class="font-bold text-sm text-white">Alexa+ Voice & MCP Assistant</h3>
+              <p class="text-[11px] text-blue-400">Simulated Alexa+ Ambient Experience (Spec 2025-11-25)</p>
+            </div>
+          </div>
+          <span class="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">MCP Spec 2025-11-25</span>
+        </div>
+
+        <!-- Chat History -->
+        <div id="alexa-chat" class="space-y-3 my-4 max-h-80 overflow-y-auto pr-1 text-xs">
+          <div class="p-3 rounded-lg bg-slate-800/60 border border-slate-700">
+            <p class="font-semibold text-blue-400 mb-1 flex items-center gap-1.5">
+              <i class="fa-solid fa-robot"></i> Alexa+
+            </p>
+            <p class="text-slate-300">"Good morning! I detected peak rates starting at 4:00 PM. I have an optimization plan ready to save $3.83 today. How would you like to proceed?"</p>
+          </div>
+        </div>
+
+        <!-- Quick Voice Intent Buttons -->
+        <div class="space-y-2 mb-3">
+          <p class="text-[11px] text-slate-400 font-medium">Try saying or clicking:</p>
+          <div class="flex flex-wrap gap-1.5">
+            <button onclick="sendAlexaUtterance('What is my energy forecast?')" class="text-[11px] px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+              "What is my forecast?"
+            </button>
+            <button onclick="sendAlexaUtterance('How can I save money today?')" class="text-[11px] px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+              "How can I save money?"
+            </button>
+            <button onclick="sendAlexaUtterance('Approve the energy plan')" class="text-[11px] px-2.5 py-1 rounded bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 transition">
+              "Approve the plan"
+            </button>
+            <button onclick="sendAlexaUtterance('Set temperature to 69 degrees')" class="text-[11px] px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+              "Set temp to 69°F"
+            </button>
+          </div>
+        </div>
+
+        <!-- Input Box -->
+        <form onsubmit="handleChatSubmit(event)" class="flex gap-2">
+          <input id="alexa-input" type="text" placeholder="Speak to Alexa+..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500">
+          <button type="submit" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition">
+            Send
+          </button>
+        </form>
+
+        <!-- MCP Tool Call Inspector -->
+        <div class="mt-4 pt-3 border-t border-slate-800">
+          <details class="text-[11px] text-slate-400">
+            <summary class="cursor-pointer hover:text-slate-200 transition font-medium">
+              <i class="fa-solid fa-code text-blue-400 mr-1"></i> Inspect Alexa+ MCP Tool Payloads
+            </summary>
+            <pre id="mcp-inspector" class="mt-2 p-2.5 rounded bg-slate-950 border border-slate-800 text-[10px] text-emerald-400 overflow-x-auto">No tool invoked yet.</pre>
+          </details>
+        </div>
+      </div>
+
+      <!-- Empirical AI Evaluation Card -->
+      <div class="card p-6">
+        <h3 class="font-bold text-sm text-white mb-2 flex items-center gap-2">
+          <i class="fa-solid fa-scale-balanced text-emerald-400"></i> Model Benchmark Verification
+        </h3>
+        <p class="text-xs text-slate-400 mb-3">Comparing Random Forest against 24h Persistence on 120 held-out hours.</p>
+
+        <div class="space-y-2.5 text-xs">
+          <div class="flex justify-between items-center py-1 border-b border-slate-800">
+            <span class="text-slate-400">Persistence Baseline MAE:</span>
+            <span id="bench-base-mae" class="font-mono text-slate-300 font-semibold">-- kW</span>
+          </div>
+          <div class="flex justify-between items-center py-1 border-b border-slate-800">
+            <span class="text-slate-400">Random Forest ML MAE:</span>
+            <span id="bench-ml-mae" class="font-mono text-emerald-400 font-bold">-- kW</span>
+          </div>
+          <div class="flex justify-between items-center py-1 border-b border-slate-800">
+            <span class="text-slate-400">Forecasting Error Reduction:</span>
+            <span id="bench-improvement" class="font-bold text-emerald-400">--%</span>
+          </div>
+          <div class="flex justify-between items-center py-1">
+            <span class="text-slate-400">Test Evaluation Samples:</span>
+            <span id="bench-samples" class="font-mono text-slate-400">120 hours</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Dashboard JavaScript Application -->
+  <script>
+    let forecastChart = null;
+    let pendingActionId = null;
+
+    async function fetchJSON(url, options = {}) {
+      const res = await fetch(url, options);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    }
+
+    async function loadDashboard() {
+      try {
+        // 0. AWS Status Check
+        try {
+          const awsStatus = await fetchJSON('/api/aws/status');
+          const pill = document.getElementById('aws-status-pill');
+          if (awsStatus.mode === 'live') {
+            pill.innerText = `Live Connected (${awsStatus.region})`;
+            pill.className = "text-emerald-400 font-semibold";
+          } else {
+            pill.innerText = `Shadow Simulation (Protocol Validated)`;
+            pill.className = "text-amber-400 font-semibold";
+          }
+        } catch (e) {
+          console.warn("AWS status check:", e);
+        }
+
+        // 1. Live Telemetry
+        const telemetry = await fetchJSON('/api/telemetry/live');
+        document.getElementById('live-power').innerText = telemetry.active_power_kw.toFixed(2);
+        document.getElementById('live-tariff').innerText = `$${telemetry.current_tariff_usd_kwh.toFixed(2)}`;
+        document.getElementById('indoor-temp').innerText = `Indoor: ${telemetry.indoor_temp_f.toFixed(1)}°F`;
+        document.getElementById('outdoor-temp').innerText = `Outdoor: ${telemetry.outdoor_temp_f.toFixed(1)}°F`;
+        
+        const tierBadge = document.getElementById('tariff-tier-badge');
+        if (telemetry.current_tariff_usd_kwh >= 0.40) {
+          tierBadge.innerHTML = '<span class="px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30 font-semibold">ON-PEAK TARIFF ($0.45)</span>';
+        } else if (telemetry.current_tariff_usd_kwh >= 0.20) {
+          tierBadge.innerHTML = '<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">MID-PEAK ($0.25)</span>';
+        } else {
+          tierBadge.innerHTML = '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">OFF-PEAK ($0.12)</span>';
+        }
+
+        // 2. Benchmark Metrics
+        const benchmark = await fetchJSON('/api/benchmark');
+        document.getElementById('bench-base-mae').innerText = `${benchmark.baseline_mae} kW`;
+        document.getElementById('bench-ml-mae').innerText = `${benchmark.ml_mae} kW`;
+        document.getElementById('bench-improvement').innerText = `+${benchmark.mae_improvement_pct}%`;
+        document.getElementById('ml-improvement-pill').innerText = `+${benchmark.mae_improvement_pct}% MAE vs Baseline`;
+
+        // 3. Forecast Data
+        const forecastData = await fetchJSON('/api/forecast');
+        document.getElementById('bau-bill').innerText = `$${forecastData.total_bau_cost_usd.toFixed(2)}`;
+        document.getElementById('persistence-bill').innerText = `$${forecastData.total_persistence_cost_usd.toFixed(2)}`;
+        document.getElementById('optimized-bill').innerText = `$${forecastData.total_optimized_cost_usd.toFixed(2)}`;
+        document.getElementById('savings-amount').innerText = `+$${forecastData.net_savings_usd.toFixed(2)}`;
+        document.getElementById('savings-pct').innerText = `(${forecastData.savings_pct}%)`;
+
+        renderForecastChart(forecastData.forecast);
+
+        // 4. Recommendations
+        const recs = await fetchJSON('/api/recommendations');
+        document.getElementById('explanation-summary').innerText = recs.explanation_summary;
+        renderActions(recs.actions);
+
+        // 5. Devices
+        const devices = await fetchJSON('/api/devices');
+        renderDevices(devices);
+
+      } catch (err) {
+        console.error("Failed to load dashboard data:", err);
+      }
+    }
+
+    function renderForecastChart(items) {
+      const labels = items.map(d => `${d.hour}:00`);
+      const persistence = items.map(d => d.persistence_demand_kw);
+      const bau = items.map(d => d.bau_demand_kw);
+      const optimized = items.map(d => d.optimized_demand_kw);
+
+      const ctx = document.getElementById('forecastChart').getContext('2d');
+      if (forecastChart) {
+        forecastChart.destroy();
+      }
+
+      forecastChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Persistence Baseline (kW)',
+              data: persistence,
+              borderColor: '#fb923c',
+              borderDash: [5, 5],
+              borderWidth: 1.5,
+              tension: 0.3,
+              pointRadius: 0
+            },
+            {
+              label: 'ML Forecast BAU (kW)',
+              data: bau,
+              borderColor: '#60a5fa',
+              borderWidth: 2,
+              tension: 0.3,
+              pointRadius: 2
+            },
+            {
+              label: 'Optimized Demand (kW)',
+              data: optimized,
+              borderColor: '#34d399',
+              backgroundColor: 'rgba(52, 211, 153, 0.1)',
+              fill: true,
+              borderWidth: 2.5,
+              tension: 0.3,
+              pointRadius: 3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                footer: function(tooltipItems) {
+                  const idx = tooltipItems[0].dataIndex;
+                  const item = items[idx];
+                  return `Tariff: $${item.tariff_usd_kwh}/kWh ${item.is_peak_tariff ? '(PEAK)' : ''}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: '#1e293b' },
+              ticks: { color: '#94a3b8', font: { size: 10 } }
+            },
+            y: {
+              grid: { color: '#1e293b' },
+              ticks: { color: '#94a3b8', font: { size: 10 } },
+              title: { display: true, text: 'Demand (kW)', color: '#64748b', font: { size: 11 } }
+            }
+          }
+        }
+      });
+    }
+
+    function renderActions(actions) {
+      const container = document.getElementById('actions-container');
+      if (!actions || actions.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-500 py-2">No actions currently pending.</div>';
+        return;
+      }
+
+      pendingActionId = actions[0].action_id;
+
+      container.innerHTML = actions.map(act => `
+        <div class="p-3.5 rounded-lg bg-slate-800/80 border border-slate-700/80 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold ${act.device_type === 'thermostat' ? 'bg-blue-500/20 text-blue-300' : 'bg-emerald-500/20 text-emerald-300'}">
+                ${act.device_type.toUpperCase()}
+              </span>
+              <h4 class="font-semibold text-xs text-white">${act.action_name}</h4>
+              <span class="text-emerald-400 font-bold text-xs">+$${act.expected_savings_usd.toFixed(2)} savings</span>
+            </div>
+            <p class="text-xs text-slate-300">${act.description}</p>
+            <p class="text-[11px] text-slate-400 italic">${act.comfort_impact}</p>
+          </div>
+          <div class="flex items-center gap-2 self-end md:self-center">
+            <span class="text-[11px] px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-300 font-mono">
+              ${act.status === 'approved' ? '✓ Executing' : 'Pending Approval'}
+            </span>
+            ${act.status !== 'approved' ? `
+              <button onclick="approveSingleAction('${act.action_id}')" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded transition">
+                Approve
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderDevices(devices) {
+      const container = document.getElementById('devices-container');
+      container.innerHTML = devices.map(d => {
+        let stateStr = JSON.stringify(d.desired_state).replace(/[{""}]/g, ' ').replace(/:/g, ': ');
+        return `
+          <div class="p-3.5 rounded-lg bg-slate-800/60 border border-slate-700/80 space-y-2">
+            <div class="flex justify-between items-start">
+              <h4 class="font-semibold text-xs text-white">${d.name}</h4>
+              <span class="w-2 h-2 rounded-full ${d.manual_override ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
+            </div>
+            <div class="text-[11px] text-slate-400 space-y-1">
+              <div>Desired State: <span class="text-slate-200 font-mono">${stateStr}</span></div>
+              <div>Override: <span class="${d.manual_override ? 'text-amber-400 font-bold' : 'text-slate-400'}">${d.manual_override ? 'Active (Manual Priority)' : 'Automated'}</span></div>
+            </div>
+            <div class="pt-2 border-t border-slate-700/50 flex gap-2">
+              ${d.manual_override ? `
+                <button onclick="clearOverride('${d.device_id}')" class="w-full py-1 text-[10px] bg-slate-700 hover:bg-slate-600 text-white rounded transition">
+                  Restore Automation
+                </button>
+              ` : `
+                <button onclick="triggerOverride('${d.device_id}')" class="w-full py-1 text-[10px] bg-amber-900/40 hover:bg-amber-900/70 border border-amber-600/30 text-amber-300 rounded transition">
+                  Comfort Override
+                </button>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function approveFirstAction() {
+      if (!pendingActionId) return;
+      await approveSingleAction(pendingActionId);
+    }
+
+    async function approveSingleAction(actionId) {
+      try {
+        const res = await fetchJSON('/api/actions/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action_id: actionId, approved: true })
+        });
+        appendAlexaMessage("user", "Approve energy plan");
+        appendAlexaMessage("alexa", `Plan approved! ${res.message}`);
+        document.getElementById('mcp-inspector').innerText = JSON.stringify(res, null, 2);
+        loadDashboard();
+      } catch (err) {
+        alert("Failed to approve action: " + err);
+      }
+    }
+
+    async function triggerOverride(deviceId) {
+      await fetchJSON(`/api/devices/${deviceId}/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ setpoint_f: 68.0, mode: "cool" })
+      });
+      loadDashboard();
+    }
+
+    async function clearOverride(deviceId) {
+      await fetchJSON(`/api/devices/${deviceId}/clear-override`, { method: 'POST' });
+      loadDashboard();
+    }
+
+    async function sendAlexaUtterance(text) {
+      appendAlexaMessage("user", text);
+      try {
+        const res = await fetchJSON('/api/alexa/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ utterance: text })
+        });
+        appendAlexaMessage("alexa", res.alexa_response);
+        if (res.mcp_tool_invoked) {
+          document.getElementById('mcp-inspector').innerText = JSON.stringify(res.mcp_tool_invoked, null, 2);
+        }
+        loadDashboard();
+      } catch (err) {
+        appendAlexaMessage("alexa", "Sorry, I had trouble reaching the home energy optimizer service.");
+      }
+    }
+
+    function appendAlexaMessage(sender, text) {
+      const chat = document.getElementById('alexa-chat');
+      const isUser = sender === "user";
+      const div = document.createElement('div');
+      div.className = `p-2.5 rounded-lg ${isUser ? 'bg-blue-600/20 border border-blue-500/30 text-right ml-4' : 'bg-slate-800/80 border border-slate-700 mr-4'}`;
+      div.innerHTML = `
+        <p class="font-semibold ${isUser ? 'text-blue-300' : 'text-blue-400'} mb-0.5">
+          ${isUser ? 'You' : '<i class="fa-solid fa-robot mr-1"></i> Alexa+'}
+        </p>
+        <p class="text-slate-200">${text}</p>
+      `;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function handleChatSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('alexa-input');
+      const val = input.value.trim();
+      if (!val) return;
+      input.value = '';
+      sendAlexaUtterance(val);
+    }
+
+    function refreshDashboard() {
+      loadDashboard();
+    }
+
+    // Auto-load on page ready
+    window.onload = loadDashboard;
+  </script>
+</body>
+</html>
